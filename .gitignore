@@ -1,0 +1,9 @@
+build/
+install/
+log/
+local/
+Log/
+__pycache__/
+*.pyc
+.DS_Store
+.usd_tools_venv/

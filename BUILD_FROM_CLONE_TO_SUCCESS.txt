@@ -1,0 +1,117 @@
+# BUILD_FROM_CLONE_TO_SUCCESS.txt
+# Workspace: /home/peng/isacc_slam
+# Target: Ubuntu 22.04 + ROS 2 Humble
+#
+# Important:
+# 1. The current workspace already contains local fixes to FAST-LIVO2, livox_ros_driver2, and rpg_vikit.
+# 2. The commands below describe the full command-line flow from clone to successful build for this workspace layout.
+# 3. If you clone the upstream repos again from scratch, you also need the local code changes that are already present in this workspace.
+# 4. Since you are not using a real Livox lidar, Livox-SDK2 is not installed here; livox_ros_driver2 is built in message-only mode.
+
+
+###############################################################################
+# 0. Assumption: ROS 2 Humble is already installed
+###############################################################################
+
+source /opt/ros/humble/setup.bash
+
+
+###############################################################################
+# 1. System packages
+###############################################################################
+
+sudo apt update
+sudo apt install -y \
+  build-essential \
+  cmake \
+  curl \
+  git \
+  libcurl4-openssl-dev \
+  libeigen3-dev \
+  libfmt-dev \
+  libopencv-dev \
+  python3-catkin-pkg \
+  python3-colcon-common-extensions \
+  python3-empy \
+  ros-humble-cv-bridge \
+  ros-humble-image-transport \
+  ros-humble-pcl-conversions \
+  ros-humble-pcl-ros \
+  ros-humble-tf2-geometry-msgs \
+  ros-humble-tf2-ros
+
+
+###############################################################################
+# 2. Create workspace and clone source repositories
+###############################################################################
+
+mkdir -p ~/isacc_slam/src
+cd ~/isacc_slam/src
+
+git clone https://github.com/integralrobotics/FAST-LIVO2.git FAST-LIVO2
+git clone https://github.com/Livox-SDK/livox_ros_driver2.git
+git clone https://github.com/Robotic-Developer-Road/rpg_vikit.git
+
+
+###############################################################################
+# 3. Clone and install Sophus locally into the workspace
+###############################################################################
+
+cd ~/isacc_slam
+mkdir -p third_party
+git clone --depth 1 -b 1.22.10 https://github.com/strasdat/Sophus.git third_party/Sophus
+touch third_party/Sophus/COLCON_IGNORE
+
+source /opt/ros/humble/setup.bash
+export PATH=/usr/bin:/bin:/usr/local/bin:$PATH
+
+cmake -S ~/isacc_slam/third_party/Sophus \
+      -B ~/isacc_slam/third_party/Sophus/build \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_INSTALL_PREFIX=~/isacc_slam/local
+
+cmake --build ~/isacc_slam/third_party/Sophus/build -j$(nproc)
+cmake --install ~/isacc_slam/third_party/Sophus/build
+
+
+###############################################################################
+# 4. Build the whole workspace
+###############################################################################
+
+cd ~/isacc_slam
+source /opt/ros/humble/setup.bash
+colcon build --symlink-install --cmake-clean-cache
+
+
+###############################################################################
+# 5. Source the built workspace
+###############################################################################
+
+source ~/isacc_slam/install/setup.bash
+
+
+###############################################################################
+# 6. Optional: build only FAST-LIVO2 package
+###############################################################################
+
+cd ~/isacc_slam/src/FAST-LIVO2
+source ~/isacc_slam/install/setup.bash
+colcon build
+
+
+###############################################################################
+# 7. Notes for this workspace
+###############################################################################
+
+# - Successful top-level build command actually verified in this workspace:
+#   cd /home/peng/isacc_slam
+#   source /opt/ros/humble/setup.bash
+#   colcon build --symlink-install
+#
+# - Successful package-local build command also verified in this workspace:
+#   cd /home/peng/isacc_slam/src/FAST-LIVO2
+#   source /home/peng/isacc_slam/install/setup.bash
+#   colcon build
+#
+# - If Conda is active, this workspace has local CMake fixes to prefer system
+#   Python and system libraries for ROS build steps.
