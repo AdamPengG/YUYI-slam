@@ -241,6 +241,7 @@ class SemanticMapperNode(Node):
         self._depth_buffer: Deque[BufferedDepth] = deque(maxlen=10)
         self._odom_buffer: Deque[BufferedOdom] = deque(maxlen=50)
         self._semantic_voxels: Dict[Tuple[int, int, int], SemanticVoxel] = {}
+        self._semantic_raw_voxels: Dict[Tuple[int, int, int], SemanticVoxel] = {}
         self._last_status_log_time = 0.0
         self._latest_sensor_stamp: Optional[float] = None
         self._odom_time_offset: Optional[float] = None
@@ -258,6 +259,7 @@ class SemanticMapperNode(Node):
 
         self.current_cloud_pub = self.create_publisher(PointCloud2, self.current_cloud_topic, 10)
         self.map_cloud_pub = self.create_publisher(PointCloud2, self.map_cloud_topic, 10)
+        self.raw_map_cloud_pub = self.create_publisher(PointCloud2, self.raw_map_cloud_topic, 10)
         self.marker_pub = self.create_publisher(MarkerArray, self.marker_topic, 10)
         self.debug_image_pub = self.create_publisher(Image, self.debug_image_topic, 10)
 
@@ -283,6 +285,7 @@ class SemanticMapperNode(Node):
             "semantic.odom_topic": "/aft_mapped_to_init",
             "semantic.current_cloud_topic": "/semantic_current_cloud",
             "semantic.map_cloud_topic": "/semantic_map_cloud",
+            "semantic.raw_map_cloud_topic": "/semantic_map_raw_cloud",
             "semantic.marker_topic": "/semantic_labels",
             "semantic.debug_image_topic": "/semantic_debug_image",
             "semantic.sync_slop_sec": 0.25,
@@ -307,6 +310,8 @@ class SemanticMapperNode(Node):
             "semantic.map_object_max_cluster_extent_m": 2.0,
             "semantic.voxel_size": 0.15,
             "semantic.min_points_per_voxel": 3,
+            "semantic.raw_voxel_size": 0.03,
+            "semantic.raw_min_points_per_voxel": 1,
             "semantic.cluster_radius_m": 0.55,
             "semantic.min_voxels_per_cluster": 6,
             "semantic.box_padding_m": 0.08,
@@ -368,6 +373,7 @@ class SemanticMapperNode(Node):
         self.odom_topic = self.get_parameter("semantic.odom_topic").value
         self.current_cloud_topic = self.get_parameter("semantic.current_cloud_topic").value
         self.map_cloud_topic = self.get_parameter("semantic.map_cloud_topic").value
+        self.raw_map_cloud_topic = self.get_parameter("semantic.raw_map_cloud_topic").value
         self.marker_topic = self.get_parameter("semantic.marker_topic").value
         self.debug_image_topic = self.get_parameter("semantic.debug_image_topic").value
 
@@ -393,6 +399,8 @@ class SemanticMapperNode(Node):
         self.map_object_max_cluster_extent_m = float(self.get_parameter("semantic.map_object_max_cluster_extent_m").value)
         self.voxel_size = float(self.get_parameter("semantic.voxel_size").value)
         self.min_points_per_voxel = int(self.get_parameter("semantic.min_points_per_voxel").value)
+        self.raw_voxel_size = float(self.get_parameter("semantic.raw_voxel_size").value)
+        self.raw_min_points_per_voxel = int(self.get_parameter("semantic.raw_min_points_per_voxel").value)
         self.cluster_radius_m = float(self.get_parameter("semantic.cluster_radius_m").value)
         self.min_voxels_per_cluster = int(self.get_parameter("semantic.min_voxels_per_cluster").value)
         self.box_padding_m = float(self.get_parameter("semantic.box_padding_m").value)
@@ -875,14 +883,40 @@ class SemanticMapperNode(Node):
     ) -> None:
         for point, label_id, color in zip(points_world, label_ids, colors):
             label = self.query_labels[int(label_id) - 1]
-            voxel_key = tuple(np.floor(point / self.voxel_size).astype(np.int32).tolist())
-            voxel = self._semantic_voxels.setdefault(voxel_key, SemanticVoxel())
-            voxel.xyz_sum += point.astype(np.float64)
-            voxel.point_count += 1
-            voxel.color_sum += color.astype(np.float64)
-            voxel.label_votes[label] += 1
-            voxel.last_seen = stamp_sec
-            self._refresh_voxel_stable_label(voxel)
+            self._accumulate_voxel_observation(
+                self._semantic_voxels,
+                point,
+                label,
+                color,
+                stamp_sec,
+                self.voxel_size,
+            )
+            self._accumulate_voxel_observation(
+                self._semantic_raw_voxels,
+                point,
+                label,
+                color,
+                stamp_sec,
+                self.raw_voxel_size,
+            )
+
+    def _accumulate_voxel_observation(
+        self,
+        voxel_store: Dict[Tuple[int, int, int], SemanticVoxel],
+        point: np.ndarray,
+        label: str,
+        color: np.ndarray,
+        stamp_sec: float,
+        voxel_size: float,
+    ) -> None:
+        voxel_key = tuple(np.floor(point / voxel_size).astype(np.int32).tolist())
+        voxel = voxel_store.setdefault(voxel_key, SemanticVoxel())
+        voxel.xyz_sum += point.astype(np.float64)
+        voxel.point_count += 1
+        voxel.color_sum += color.astype(np.float64)
+        voxel.label_votes[label] += 1
+        voxel.last_seen = stamp_sec
+        self._refresh_voxel_stable_label(voxel)
 
     def _refresh_voxel_stable_label(self, voxel: SemanticVoxel) -> None:
         if not voxel.label_votes:
@@ -946,17 +980,68 @@ class SemanticMapperNode(Node):
         self.current_cloud_pub.publish(cloud_msg)
 
     def _publish_map_outputs(self) -> None:
-        if not self._semantic_voxels:
+        if not self._semantic_voxels and not self._semantic_raw_voxels:
             return
 
+        map_points, map_label_ids, map_colors, stable_labels, voxel_weights = self._collect_voxel_cloud_entries(
+            self._semantic_voxels,
+            self.min_points_per_voxel,
+        )
+        raw_points, raw_label_ids, raw_colors, _, _ = self._collect_voxel_cloud_entries(
+            self._semantic_raw_voxels,
+            self.raw_min_points_per_voxel,
+        )
+
+        if not map_points and not raw_points:
+            return
+
+        now = self.get_clock().now().to_msg()
+        header = Header(stamp=now, frame_id="camera_init")
+        if map_points:
+            map_cloud = self._build_semantic_cloud(
+                header,
+                np.asarray(map_points, dtype=np.float32),
+                np.asarray(map_label_ids, dtype=np.uint32),
+                np.asarray(map_colors, dtype=np.uint8),
+            )
+            self.map_cloud_pub.publish(map_cloud)
+            self.marker_pub.publish(
+                self._build_markers(
+                    np.asarray(map_points, dtype=np.float32),
+                    stable_labels,
+                    voxel_weights,
+                    header,
+                )
+            )
+
+        if raw_points:
+            raw_map_cloud = self._build_semantic_cloud(
+                header,
+                np.asarray(raw_points, dtype=np.float32),
+                np.asarray(raw_label_ids, dtype=np.uint32),
+                np.asarray(raw_colors, dtype=np.uint8),
+            )
+            self.raw_map_cloud_pub.publish(raw_map_cloud)
+
+    def _collect_voxel_cloud_entries(
+        self,
+        voxel_store: Dict[Tuple[int, int, int], SemanticVoxel],
+        min_points_per_voxel: int,
+    ) -> Tuple[
+        List[Tuple[float, float, float]],
+        List[int],
+        List[Tuple[int, int, int]],
+        List[str],
+        List[int],
+    ]:
         points: List[Tuple[float, float, float]] = []
         label_ids: List[int] = []
         colors: List[Tuple[int, int, int]] = []
         stable_labels: List[str] = []
         voxel_weights: List[int] = []
 
-        for voxel in self._semantic_voxels.values():
-            if voxel.point_count < self.min_points_per_voxel or not voxel.label_votes:
+        for voxel in voxel_store.values():
+            if voxel.point_count < min_points_per_voxel or not voxel.label_votes:
                 continue
             point = (voxel.xyz_sum / float(voxel.point_count)).astype(np.float32)
             label = self._resolve_voxel_label(voxel)
@@ -970,26 +1055,7 @@ class SemanticMapperNode(Node):
             stable_labels.append(label)
             voxel_weights.append(voxel.point_count)
 
-        if not points:
-            return
-
-        now = self.get_clock().now().to_msg()
-        header = Header(stamp=now, frame_id="camera_init")
-        map_cloud = self._build_semantic_cloud(
-            header,
-            np.asarray(points, dtype=np.float32),
-            np.asarray(label_ids, dtype=np.uint32),
-            np.asarray(colors, dtype=np.uint8),
-        )
-        self.map_cloud_pub.publish(map_cloud)
-        self.marker_pub.publish(
-            self._build_markers(
-                np.asarray(points, dtype=np.float32),
-                stable_labels,
-                voxel_weights,
-                header,
-            )
-        )
+        return points, label_ids, colors, stable_labels, voxel_weights
 
     def _build_semantic_cloud(
         self,

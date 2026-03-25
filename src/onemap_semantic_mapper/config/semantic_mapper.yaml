@@ -7,6 +7,7 @@
       odom_topic: "/aft_mapped_to_init"
       current_cloud_topic: "/semantic_current_cloud"
       map_cloud_topic: "/semantic_map_cloud"
+      raw_map_cloud_topic: "/semantic_map_raw_cloud"
       marker_topic: "/semantic_labels"
       debug_image_topic: "/semantic_debug_image"
       sync_slop_sec: 0.25
@@ -31,6 +32,8 @@
       map_object_max_cluster_extent_m: 2.0
       voxel_size: 0.08
       min_points_per_voxel: 1
+      raw_voxel_size: 0.03
+      raw_min_points_per_voxel: 1
       cluster_radius_m: 0.55
       min_voxels_per_cluster: 6
       box_padding_m: 0.08
