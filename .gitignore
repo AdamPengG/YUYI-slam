@@ -7,3 +7,4 @@ __pycache__/
 *.pyc
 .DS_Store
 .usd_tools_venv/
+*.old_path_cache/
