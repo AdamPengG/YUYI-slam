@@ -107,6 +107,15 @@ class SemanticVoxel:
     stable_label: str = ""
 
 
+@dataclass
+class SemanticObject:
+    label: str
+    centroid: np.ndarray
+    bounds_min: np.ndarray
+    bounds_max: np.ndarray
+    voxel_count: int
+
+
 class UltralyticsDetector:
     def __init__(
         self,
@@ -291,6 +300,11 @@ class SemanticMapperNode(Node):
             "semantic.completion_min_seed_ratio": 0.05,
             "semantic.completion_dominance_ratio": 1.25,
             "semantic.completion_max_cluster_extent_m": 2.0,
+            "semantic.use_map_object_propagation": True,
+            "semantic.map_object_bbox_padding_m": 0.35,
+            "semantic.map_object_min_overlap_ratio": 0.25,
+            "semantic.map_object_max_centroid_distance_m": 0.8,
+            "semantic.map_object_max_cluster_extent_m": 2.0,
             "semantic.voxel_size": 0.15,
             "semantic.min_points_per_voxel": 3,
             "semantic.cluster_radius_m": 0.55,
@@ -372,6 +386,11 @@ class SemanticMapperNode(Node):
         self.completion_min_seed_ratio = float(self.get_parameter("semantic.completion_min_seed_ratio").value)
         self.completion_dominance_ratio = float(self.get_parameter("semantic.completion_dominance_ratio").value)
         self.completion_max_cluster_extent_m = float(self.get_parameter("semantic.completion_max_cluster_extent_m").value)
+        self.use_map_object_propagation = bool(self.get_parameter("semantic.use_map_object_propagation").value)
+        self.map_object_bbox_padding_m = float(self.get_parameter("semantic.map_object_bbox_padding_m").value)
+        self.map_object_min_overlap_ratio = float(self.get_parameter("semantic.map_object_min_overlap_ratio").value)
+        self.map_object_max_centroid_distance_m = float(self.get_parameter("semantic.map_object_max_centroid_distance_m").value)
+        self.map_object_max_cluster_extent_m = float(self.get_parameter("semantic.map_object_max_cluster_extent_m").value)
         self.voxel_size = float(self.get_parameter("semantic.voxel_size").value)
         self.min_points_per_voxel = int(self.get_parameter("semantic.min_points_per_voxel").value)
         self.cluster_radius_m = float(self.get_parameter("semantic.cluster_radius_m").value)
@@ -510,14 +529,24 @@ class SemanticMapperNode(Node):
         if not np.any(assigned_mask):
             return
 
-        semantic_points_lidar = points_lidar[assigned_mask]
-        semantic_labels = labels[assigned_mask]
-        semantic_colors = colors[assigned_mask]
-        semantic_points_world = self._transform_points_to_world(
-            semantic_points_lidar,
+        points_world = self._transform_points_to_world(
+            points_lidar,
             odom.pose_rotation,
             odom.pose_translation,
         )
+        if self.use_map_object_propagation and self._semantic_voxels:
+            labels, colors, assigned_mask = self._propagate_map_object_labels(
+                points_world,
+                labels,
+                colors,
+                assigned_mask,
+            )
+        if not np.any(assigned_mask):
+            return
+
+        semantic_points_world = points_world[assigned_mask]
+        semantic_labels = labels[assigned_mask]
+        semantic_colors = colors[assigned_mask]
 
         self._update_semantic_map(semantic_points_world, semantic_labels, semantic_colors, cloud_time)
         stable_label_ids, stable_colors = self._stabilize_current_labels(semantic_points_world, semantic_labels)
@@ -659,6 +688,76 @@ class SemanticMapperNode(Node):
             completed_assigned[cluster] = True
 
         return completed_label_ids, completed_colors, completed_assigned
+
+    def _propagate_map_object_labels(
+        self,
+        points_world: np.ndarray,
+        label_ids: np.ndarray,
+        colors: np.ndarray,
+        assigned: np.ndarray,
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        semantic_objects = self._build_semantic_objects()
+        if not semantic_objects:
+            return label_ids, colors, assigned
+
+        propagated_label_ids = np.asarray(label_ids, dtype=np.uint32).copy()
+        propagated_colors = np.asarray(colors, dtype=np.uint8).copy()
+        propagated_assigned = np.asarray(assigned, dtype=bool).copy()
+
+        for cluster in self._cluster_indices(points_world, self.completion_cluster_radius_m):
+            if cluster.size < self.completion_min_seed_points:
+                continue
+
+            cluster_points = points_world[cluster]
+            cluster_extent = cluster_points.max(axis=0) - cluster_points.min(axis=0)
+            if float(np.max(cluster_extent)) > self.map_object_max_cluster_extent_m:
+                continue
+
+            unlabeled_count = int(np.count_nonzero(~propagated_assigned[cluster]))
+            if unlabeled_count == 0:
+                continue
+
+            cluster_seed_labels = propagated_label_ids[cluster][propagated_assigned[cluster]]
+            dominant_seed_label: Optional[str] = None
+            if cluster_seed_labels.size > 0:
+                seed_counter = Counter(int(label_id) for label_id in cluster_seed_labels.tolist())
+                dominant_seed_label = self.query_labels[seed_counter.most_common(1)[0][0] - 1]
+
+            best_object: Optional[SemanticObject] = None
+            best_score = -1.0
+            cluster_centroid = cluster_points.mean(axis=0)
+
+            for semantic_object in semantic_objects:
+                if dominant_seed_label is not None and semantic_object.label != dominant_seed_label:
+                    continue
+
+                padded_min = semantic_object.bounds_min - self.map_object_bbox_padding_m
+                padded_max = semantic_object.bounds_max + self.map_object_bbox_padding_m
+                inside_mask = np.all((cluster_points >= padded_min) & (cluster_points <= padded_max), axis=1)
+                overlap_ratio = float(np.count_nonzero(inside_mask)) / float(cluster.size)
+                if overlap_ratio < self.map_object_min_overlap_ratio:
+                    continue
+
+                centroid_delta = np.maximum(0.0, np.maximum(padded_min - cluster_centroid, cluster_centroid - padded_max))
+                centroid_distance = float(np.linalg.norm(centroid_delta))
+                if centroid_distance > self.map_object_max_centroid_distance_m:
+                    continue
+
+                score = overlap_ratio + 0.05 * min(semantic_object.voxel_count, 20)
+                if score > best_score:
+                    best_score = score
+                    best_object = semantic_object
+
+            if best_object is None:
+                continue
+
+            label_id = self.label_to_id[best_object.label]
+            color = np.asarray(self.label_to_color[best_object.label], dtype=np.uint8)
+            propagated_label_ids[cluster] = label_id
+            propagated_colors[cluster] = color
+            propagated_assigned[cluster] = True
+
+        return propagated_label_ids, propagated_colors, propagated_assigned
 
     def _filter_detection_candidates(
         self,
@@ -910,6 +1009,36 @@ class SemanticMapperNode(Node):
         for point, label_id, color in zip(points, label_ids, colors):
             rows.append((float(point[0]), float(point[1]), float(point[2]), pack_rgb(color), int(label_id)))
         return point_cloud2.create_cloud(header, fields, rows)
+
+    def _build_semantic_objects(self) -> List[SemanticObject]:
+        label_points: Dict[str, List[np.ndarray]] = defaultdict(list)
+
+        for voxel in self._semantic_voxels.values():
+            if voxel.point_count < self.min_points_per_voxel or not voxel.label_votes:
+                continue
+            label = self._resolve_voxel_label(voxel)
+            if label is None:
+                continue
+            label_points[label].append((voxel.xyz_sum / float(voxel.point_count)).astype(np.float32))
+
+        semantic_objects: List[SemanticObject] = []
+        for label, points in label_points.items():
+            label_array = np.asarray(points, dtype=np.float32)
+            for cluster in self._cluster_indices(label_array, self.cluster_radius_m):
+                if cluster.size < self.min_voxels_per_cluster:
+                    continue
+                cluster_points = label_array[cluster]
+                semantic_objects.append(
+                    SemanticObject(
+                        label=label,
+                        centroid=cluster_points.mean(axis=0),
+                        bounds_min=cluster_points.min(axis=0),
+                        bounds_max=cluster_points.max(axis=0),
+                        voxel_count=int(cluster.size),
+                    )
+                )
+
+        return semantic_objects
 
     def _build_markers(
         self,

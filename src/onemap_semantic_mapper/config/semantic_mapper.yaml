@@ -24,6 +24,11 @@
       completion_min_seed_ratio: 0.05
       completion_dominance_ratio: 1.25
       completion_max_cluster_extent_m: 2.0
+      use_map_object_propagation: true
+      map_object_bbox_padding_m: 0.35
+      map_object_min_overlap_ratio: 0.25
+      map_object_max_centroid_distance_m: 0.8
+      map_object_max_cluster_extent_m: 2.0
       voxel_size: 0.08
       min_points_per_voxel: 1
       cluster_radius_m: 0.55
