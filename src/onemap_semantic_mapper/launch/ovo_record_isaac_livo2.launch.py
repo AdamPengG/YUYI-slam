@@ -60,6 +60,7 @@ def generate_launch_description():
                 "export.run_root": run_root,
                 "export.max_frames": max_frames,
                 "export.overwrite_scene": True,
+                "export.override_intrinsics_from_camera_info": False,
             },
         ],
     )

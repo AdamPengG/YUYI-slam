@@ -6,7 +6,7 @@ from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, TextSubstitution
 from launch_ros.actions import Node
 
 
@@ -22,6 +22,7 @@ def generate_launch_description():
     default_ovo_root = "/home/peng/isacc_slam/reference/OVO"
     default_ovo_wrapper = "/home/peng/isacc_slam/scripts/run_ovo_eval_5090.sh"
     default_ovo_config = "data/working/configs/ovo_livo2_vanilla.yaml"
+    default_output_artifact_root = "/home/peng/isacc_slam/reference/OVO/data/output/Replica"
 
     use_rviz = LaunchConfiguration("use_rviz")
     scene_name = LaunchConfiguration("scene_name")
@@ -67,6 +68,7 @@ def generate_launch_description():
                 "export.run_root": run_root,
                 "export.max_frames": max_frames,
                 "export.overwrite_scene": True,
+                "export.override_intrinsics_from_camera_info": False,
             },
         ],
     )
@@ -104,6 +106,26 @@ def generate_launch_description():
             {
                 "artifact_path": artifact_path,
                 "frame_id": "camera_init",
+                "topic_name": "/ovo_semantic_rgbd_map",
+                "marker_topic": "/ovo_instance_labels_rgbd",
+            }
+        ],
+    )
+
+    lidar_publisher = Node(
+        package="onemap_semantic_mapper",
+        executable="ovo_semantic_lidar_map_publisher",
+        name="ovo_semantic_lidar_map_publisher",
+        output="screen",
+        respawn=True,
+        respawn_delay=2.0,
+        parameters=[
+            {
+                "artifact_path": artifact_path,
+                "frame_id": "camera_init",
+                "input_cloud_topic": "/cloud_registered",
+                "topic_name": "/ovo_semantic_map",
+                "marker_topic": "/ovo_instance_labels",
             }
         ],
     )
@@ -129,11 +151,19 @@ def generate_launch_description():
             DeclareLaunchArgument("resume_if_exists", default_value="False"),
             DeclareLaunchArgument(
                 "artifact_path",
-                default_value="/home/peng/isacc_slam/reference/OVO/data/output/Replica/isaac_livo2_online_vanilla/isaac_turtlebot3_livo2_online/semantic_snapshot.npz",
+                default_value=PathJoinSubstitution(
+                    [
+                        TextSubstitution(text=default_output_artifact_root),
+                        experiment_name,
+                        scene_name,
+                        "semantic_snapshot.npz",
+                    ]
+                ),
             ),
             fast_livo_launch,
             exporter,
             worker,
             publisher,
+            lidar_publisher,
         ]
     )

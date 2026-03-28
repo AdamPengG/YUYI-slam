@@ -148,6 +148,7 @@ class Livo2OVOKeyframeExporter(Node):
         self._odom_buffer: Deque[BufferedOdom] = deque(maxlen=1000)
 
         self._camera_info_received = False
+        self._camera_info_warning_emitted = False
         self._config_written = False
         self._latest_sensor_stamp: Optional[float] = None
         self._latest_odom_stamp: Optional[float] = None
@@ -233,6 +234,7 @@ class Livo2OVOKeyframeExporter(Node):
             "camera.cam_cy": 360.0,
             "export.depth_topic": "/depth",
             "export.camera_info_topic": "/camera_info",
+            "export.override_intrinsics_from_camera_info": False,
             "export.odom_topic": "/aft_mapped_to_init",
             "export.output_root": "/home/peng/isacc_slam/reference/OVO/data/input/Datasets/Replica",
             "export.config_root": "/home/peng/isacc_slam/reference/OVO/data/working/configs/Replica",
@@ -263,6 +265,9 @@ class Livo2OVOKeyframeExporter(Node):
         self.image_topic = str(self.get_parameter("common.img_topic").value)
         self.depth_topic = str(self.get_parameter("export.depth_topic").value)
         self.camera_info_topic = str(self.get_parameter("export.camera_info_topic").value)
+        self.override_intrinsics_from_camera_info = bool(
+            self.get_parameter("export.override_intrinsics_from_camera_info").value
+        )
         self.odom_topic = str(self.get_parameter("export.odom_topic").value)
         self.output_root = Path(str(self.get_parameter("export.output_root").value)).expanduser()
         self.config_root = Path(str(self.get_parameter("export.config_root").value)).expanduser()
@@ -352,6 +357,7 @@ class Livo2OVOKeyframeExporter(Node):
             "image_topic": self.image_topic,
             "depth_topic": self.depth_topic,
             "camera_info_topic": self.camera_info_topic,
+            "intrinsics_source": "camera_info" if self.override_intrinsics_from_camera_info else "fast_livo_config",
             "selector": {
                 "min_time_gap_sec": self.min_time_gap_sec,
                 "max_time_gap_sec": self.max_time_gap_sec,
@@ -390,6 +396,7 @@ class Livo2OVOKeyframeExporter(Node):
 - pose authority: `FAST-LIVO2` via `{self.odom_topic}`
 - image topic: `{self.image_topic}`
 - depth topic: `{self.depth_topic}`
+- intrinsics source: `{"camera_info" if self.override_intrinsics_from_camera_info else "fast_livo_config"}`
 - keyframe policy: ORB-like but independent of ORB-SLAM3
 
 This run exports Replica-style OVO inputs under:
@@ -561,12 +568,40 @@ Downstream OVO immediate contract:
         k = list(msg.k)
         if len(k) != 9 or k[0] <= 0.0 or k[4] <= 0.0:
             return
-        self.fx = float(k[0])
-        self.fy = float(k[4])
-        self.cx = float(k[2])
-        self.cy = float(k[5])
-        self.cam_width = int(msg.width)
-        self.cam_height = int(msg.height)
+
+        msg_fx = float(k[0])
+        msg_fy = float(k[4])
+        msg_cx = float(k[2])
+        msg_cy = float(k[5])
+        msg_width = int(msg.width)
+        msg_height = int(msg.height)
+
+        if self.override_intrinsics_from_camera_info:
+            self.fx = msg_fx
+            self.fy = msg_fy
+            self.cx = msg_cx
+            self.cy = msg_cy
+            self.cam_width = msg_width
+            self.cam_height = msg_height
+        elif not self._camera_info_warning_emitted:
+            mismatch = (
+                abs(self.fx - msg_fx) > 1e-3
+                or abs(self.fy - msg_fy) > 1e-3
+                or abs(self.cx - msg_cx) > 1e-3
+                or abs(self.cy - msg_cy) > 1e-3
+                or self.cam_width != msg_width
+                or self.cam_height != msg_height
+            )
+            if mismatch:
+                self.get_logger().warn(
+                    "CameraInfo intrinsics differ from FAST-LIVO2 camera model. "
+                    f"Keeping configured intrinsics fx={self.fx:.3f}, fy={self.fy:.3f}, "
+                    f"cx={self.cx:.3f}, cy={self.cy:.3f}, size={self.cam_width}x{self.cam_height}; "
+                    f"camera_info reported fx={msg_fx:.3f}, fy={msg_fy:.3f}, "
+                    f"cx={msg_cx:.3f}, cy={msg_cy:.3f}, size={msg_width}x{msg_height}."
+                )
+            self._camera_info_warning_emitted = True
+
         self._camera_info_received = True
         self._write_scene_config()
 

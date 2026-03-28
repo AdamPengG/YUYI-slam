@@ -26,7 +26,6 @@ class OVOSemanticMapPublisher(Node):
         self._last_mtime_ns: int | None = None
         self._cached_cloud: PointCloud2 | None = None
         self._cached_markers: MarkerArray | None = None
-        self._startup_time_ns = self.get_clock().now().nanoseconds
 
         self.get_logger().info(
             f"OVO semantic map publisher ready. artifact={self.artifact_path}, topic={self.topic_name}, frame_id={self.frame_id}"
@@ -55,8 +54,6 @@ class OVOSemanticMapPublisher(Node):
     def _timer_callback(self) -> None:
         if self.artifact_path.exists():
             mtime_ns = self.artifact_path.stat().st_mtime_ns
-            if self._last_mtime_ns is None and mtime_ns < self._startup_time_ns:
-                return
             if self._last_mtime_ns != mtime_ns:
                 if self._load_artifact():
                     self._last_mtime_ns = mtime_ns

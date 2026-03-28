@@ -32,6 +32,7 @@ setup(
             "livo2_ovo_keyframe_exporter = onemap_semantic_mapper.livo2_ovo_keyframe_exporter:main",
             "ovo_async_worker = onemap_semantic_mapper.ovo_async_worker:main",
             "ovo_semantic_map_publisher = onemap_semantic_mapper.ovo_semantic_map_publisher:main",
+            "ovo_semantic_lidar_map_publisher = onemap_semantic_mapper.ovo_semantic_lidar_map_publisher:main",
         ],
     },
 )
