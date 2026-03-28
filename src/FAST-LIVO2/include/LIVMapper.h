@@ -62,6 +62,7 @@ public:
   void publish_odometry(const rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr &pmavros_pose_publisherubOdomAftMapped);
   void publish_mavros(const rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr &mavros_pose_publisher);
   void publish_path(const rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr &pubPath);
+  builtin_interfaces::msg::Time current_output_stamp() const;
   void readParameters(rclcpp::Node::SharedPtr &node);
   template <typename T> void set_posestamp(T &out);
   template <typename T> void pointBodyToWorld(const Eigen::Matrix<T, 3, 1> &pi, Eigen::Matrix<T, 3, 1> &po);
@@ -99,7 +100,7 @@ public:
   bool new_imu = false, state_update_flg = false, imu_prop_enable = true, ekf_finish_once = false;
   deque<sensor_msgs::msg::Imu> prop_imu_buffer;
   sensor_msgs::msg::Imu newest_imu;
-  double latest_ekf_time;
+  double latest_ekf_time = -1.0;
   nav_msgs::msg::Odometry imu_prop_odom;
   rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr pubImuPropOdom;
   double imu_time_offset = 0.0;

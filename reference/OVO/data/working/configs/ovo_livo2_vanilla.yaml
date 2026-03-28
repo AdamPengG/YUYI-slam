@@ -1,0 +1,47 @@
+project_name: ovo_livo2_vanilla
+checkpoint_path: null
+use_wandb: False
+device: cuda
+data:
+  frame_limit: -1
+seed: 0
+slam:
+  config_path: data/working/configs/slam
+  slam_module: vanilla
+  use_viewer: False
+  close_loops: False
+  save_estimated_cam: True
+vis:
+  stream: False
+  show_stream: False
+mapping:
+  map_every: 1
+debug: True
+debug_info: True
+semantic:
+  segment_every: 1
+  use_gt_masks: False
+  use_gt_clips: False
+  match_distance_th: 0.05
+  track_th: 100
+  depth_filter: True
+  log: True
+  sam:
+    precomputed: False
+    multi_crop: True
+    points_per_side: 16
+    sam_ckpt_path: "data/input/sam_ckpts/"
+    sam_version: "2.1"
+    sam_encoder: "hiera_t"
+    masks_base_path: "data/working/masks/replica_384_sam2.1_16"
+  clip:
+    use_half: False
+    embed_type: TextRegion
+    model_card: "PE-Core-L14-336"
+    mask_res: 336
+    weights_predictor_path: data/input/weights_predictor/base
+    k_top_views: 10000
+    fusion: 'avg_pooling'
+    mv_fuser: False
+    mv_fuser_ckpt: "20250725_1155"
+  kf_queue_delay: 2
