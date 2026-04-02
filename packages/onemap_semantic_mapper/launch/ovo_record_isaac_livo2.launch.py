@@ -1,0 +1,116 @@
+#!/usr/bin/env python3
+
+import os
+
+from ament_index_python.packages import get_package_share_directory
+from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument, ExecuteProcess, IncludeLaunchDescription
+from launch.conditions import IfCondition
+from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import LaunchConfiguration
+from launch_ros.actions import Node
+
+
+def generate_launch_description():
+    semantic_share = get_package_share_directory("onemap_semantic_mapper")
+    fast_livo_share = get_package_share_directory("fast_livo")
+
+    default_avia_config = os.path.join(fast_livo_share, "config", "avia_isaac.yaml")
+    default_camera_config = os.path.join(fast_livo_share, "config", "camera_pinhole.yaml")
+    default_stage_path = "/home/peng/isacc learned/tutle/turtle.usd"
+    default_output_root = "/home/peng/isacc_slam/reference/OVO/data/input/Datasets/Replica"
+    default_config_root = "/home/peng/isacc_slam/reference/OVO/data/working/configs/Replica"
+    default_run_root = "/home/peng/isacc_slam/runs/ovo_pose_keyframes"
+    stage_runner = os.path.join(semantic_share, "scripts", "isaac_turtle_stage_runner.py")
+    isaac_python = "/home/peng/IsaacSim/_build/linux-x86_64/release/python.sh"
+
+    use_rviz = LaunchConfiguration("use_rviz")
+    launch_isaac = LaunchConfiguration("launch_isaac")
+    avia_params = LaunchConfiguration("avia_params_file")
+    camera_params = LaunchConfiguration("camera_params_file")
+    isaac_stage = LaunchConfiguration("isaac_stage")
+    scene_name = LaunchConfiguration("scene_name")
+    output_root = LaunchConfiguration("output_root")
+    config_root = LaunchConfiguration("config_root")
+    run_root = LaunchConfiguration("run_root")
+    max_frames = LaunchConfiguration("max_frames")
+    camera_pose_topic = LaunchConfiguration("camera_pose_topic")
+    require_direct_camera_pose = LaunchConfiguration("require_direct_camera_pose")
+    require_exact_direct_camera_pose = LaunchConfiguration("require_exact_direct_camera_pose")
+    use_rgbd_local_cloud = LaunchConfiguration("use_rgbd_local_cloud")
+    rgbd_stride = LaunchConfiguration("rgbd_stride")
+    rgbd_min_depth_m = LaunchConfiguration("rgbd_min_depth_m")
+
+    fast_livo_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(os.path.join(fast_livo_share, "launch", "mapping_isaac.launch.py")),
+        launch_arguments={
+            "use_rviz": use_rviz,
+            "avia_params_file": avia_params,
+            "camera_params_file": camera_params,
+            "use_image_republish": "False",
+        }.items(),
+    )
+
+    exporter = Node(
+        package="onemap_semantic_mapper",
+        executable="livo2_ovo_keyframe_exporter",
+        name="livo2_ovo_keyframe_exporter",
+        output="screen",
+        parameters=[
+            avia_params,
+            camera_params,
+            {
+                "export.scene_name": scene_name,
+                "export.output_root": output_root,
+                "export.config_root": config_root,
+                "export.run_root": run_root,
+                "export.max_frames": max_frames,
+                "export.overwrite_scene": True,
+                "export.override_intrinsics_from_camera_info": True,
+                "export.camera_pose_topic": camera_pose_topic,
+                "export.require_direct_camera_pose": require_direct_camera_pose,
+                "export.require_exact_direct_camera_pose": require_exact_direct_camera_pose,
+                "export.use_rgbd_local_cloud": use_rgbd_local_cloud,
+                "export.rgbd_stride": rgbd_stride,
+                "export.rgbd_min_depth_m": rgbd_min_depth_m,
+            },
+        ],
+    )
+
+    isaac_process = ExecuteProcess(
+        condition=IfCondition(launch_isaac),
+        cmd=[isaac_python, stage_runner, "--profile", "livo2", "--usd_path", isaac_stage],
+        additional_env={
+            "PYTHONPATH": "",
+            "AMENT_PREFIX_PATH": "",
+            "COLCON_PREFIX_PATH": "",
+            "CMAKE_PREFIX_PATH": "",
+            "RMW_IMPLEMENTATION": "rmw_fastrtps_cpp",
+            "ROS_DISTRO": "humble",
+        },
+        output="screen",
+    )
+
+    return LaunchDescription(
+        [
+            DeclareLaunchArgument("use_rviz", default_value="True"),
+            DeclareLaunchArgument("launch_isaac", default_value="False"),
+            DeclareLaunchArgument("avia_params_file", default_value=default_avia_config),
+            DeclareLaunchArgument("camera_params_file", default_value=default_camera_config),
+            DeclareLaunchArgument("isaac_stage", default_value=default_stage_path),
+            DeclareLaunchArgument("scene_name", default_value="isaac_turtlebot3_livo2"),
+            DeclareLaunchArgument("output_root", default_value=default_output_root),
+            DeclareLaunchArgument("config_root", default_value=default_config_root),
+            DeclareLaunchArgument("run_root", default_value=default_run_root),
+            DeclareLaunchArgument("max_frames", default_value="-1"),
+            DeclareLaunchArgument("camera_pose_topic", default_value="/camera_pose_gt_at_image"),
+            DeclareLaunchArgument("require_direct_camera_pose", default_value="True"),
+            DeclareLaunchArgument("require_exact_direct_camera_pose", default_value="True"),
+            DeclareLaunchArgument("use_rgbd_local_cloud", default_value="True"),
+            DeclareLaunchArgument("rgbd_stride", default_value="4"),
+            DeclareLaunchArgument("rgbd_min_depth_m", default_value="0.05"),
+            fast_livo_launch,
+            exporter,
+            isaac_process,
+        ]
+    )

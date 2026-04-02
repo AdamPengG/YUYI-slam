@@ -1,0 +1,54 @@
+/**:
+  ros__parameters:
+    common:
+      depth_topic: "/depth"
+      camera_info_topic: "/camera_info"
+    semantic:
+      odom_topic: "/aft_mapped_to_init"
+      current_cloud_topic: "/semantic_current_cloud"
+      map_cloud_topic: "/semantic_map_cloud"
+      raw_map_cloud_topic: "/semantic_map_raw_cloud"
+      marker_topic: "/semantic_labels"
+      debug_image_topic: "/semantic_debug_image"
+      sync_slop_sec: 0.25
+      max_range_m: 8.0
+      min_detection_score: 0.25
+      min_points_per_detection: 8
+      use_depth_filter: true
+      depth_consistency_margin_m: 0.18
+      use_cluster_filter: true
+      object_cluster_radius_m: 0.35
+      min_points_per_object_cluster: 8
+      use_cluster_completion: true
+      completion_cluster_radius_m: 0.16
+      completion_min_seed_points: 8
+      completion_min_seed_ratio: 0.05
+      completion_dominance_ratio: 1.25
+      completion_max_cluster_extent_m: 2.0
+      use_instance_tracking: true
+      instance_depth_stride: 4
+      instance_min_depth_points: 48
+      instance_bbox_padding_m: 0.25
+      instance_match_min_iou: 0.05
+      instance_match_max_centroid_distance_m: 1.0
+      instance_max_staleness_sec: 0.0
+      use_map_object_propagation: true
+      map_object_bbox_padding_m: 0.35
+      map_object_min_overlap_ratio: 0.25
+      map_object_max_centroid_distance_m: 0.8
+      map_object_max_cluster_extent_m: 2.0
+      voxel_size: 0.08
+      min_points_per_voxel: 1
+      raw_voxel_size: 0.03
+      raw_min_points_per_voxel: 1
+      cluster_radius_m: 0.55
+      min_voxels_per_cluster: 6
+      box_padding_m: 0.08
+      box_min_size_m: 0.12
+      map_publish_period_sec: 0.5
+      publish_debug_image: true
+      label_switch_margin_votes: 4
+      label_switch_ratio: 1.15
+      detector_model: "yolov8s.pt"
+      fallback_detector_model: "yolov8s.pt"
+      query_labels: ["table", "chair", "couch", "potted plant", "tv", "bed", "toilet"]

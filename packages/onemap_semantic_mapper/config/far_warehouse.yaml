@@ -1,0 +1,51 @@
+far_planner:
+  ros__parameters:
+    main_run_freq: 2.5
+    voxel_dim: 0.12
+    robot_dim: 0.40
+    vehicle_height: 0.20
+    sensor_range: 20.0
+    terrain_range: 10.0
+    local_planner_range: 3.0
+    visualize_ratio: 0.6
+    is_viewpoint_extend: true
+    is_multi_layer: false
+    is_opencv_visual: false
+    is_static_env: true
+    is_pub_boundary: false
+    is_debug_output: false
+    is_attempt_autoswitch: true
+    world_frame: map
+
+    graph_msger/robot_id: 1
+
+    map_handler/floor_height: 5.0
+    map_handler/cell_length: 2.5
+    map_handler/map_grid_max_length: 200.0
+    map_handler/map_grad_max_height: 12.0
+
+    util/angle_noise: 15.0
+    util/accept_max_align_angle: 4.0
+    util/obs_inflate_size: 1
+    util/new_intensity_thred: 2.0
+    util/terrain_free_Z: 0.2
+    util/dyosb_update_thred: 4
+    util/new_point_counter: 5
+    util/dynamic_obs_dacay_time: 10.0
+    util/new_points_decay_time: 1.0
+
+    graph/connect_votes_size: 10
+    graph/clear_dumper_thred: 4
+    graph/node_finalize_thred: 6
+    graph/filter_pool_size: 12
+
+    c_detector/resize_ratio: 3.0
+    c_detector/filter_count_value: 3
+    c_detector/is_save_img: false
+    c_detector/img_folder_path: /tmp
+
+    g_planner/converge_distance: 0.35
+    g_planner/goal_adjust_radius: 1.2
+    g_planner/free_counter_thred: 7
+    g_planner/reach_goal_vote_size: 3
+    g_planner/path_momentum_thred: 3

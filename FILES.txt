@@ -1,0 +1,12 @@
+Included code packages:
+- packages/onemap_semantic_mapper
+- packages/FAST-LIVO2
+- packages/livox_ros_driver2
+- packages/rpg_vikit
+- packages/far_planner
+- packages/visibility_graph_msg
+
+Excluded:
+- .git metadata
+- build/install/log artifacts
+- runtime data, maps, deliverables
